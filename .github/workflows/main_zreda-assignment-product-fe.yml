@@ -1,0 +1,89 @@
+name: Build & Deploy Conditional
+
+on:
+  push:
+    branches:
+      - dev
+      - main
+  workflow_dispatch:
+
+jobs:
+
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v2
+
+      - name: Set up Node.js version
+        uses: actions/setup-node@v1
+        with:
+          node-version: '18.x'
+
+      - name: Env Dev
+        if: github.ref == 'refs/heads/dev'
+        run: |
+          echo "${{ secrets.DEVENV }}" > .env
+      - name: Env Prod
+        if: github.ref == 'refs/heads/main'
+        run: |
+          echo "${{ secrets.PRODEV }}" > .env
+      - name: npm install, build, and test
+        run: |
+          npm install
+          npm run build --if-present
+          npm run test --if-present
+      - name: Zip artifact 
+        run: zip release.zip ./* -qr
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v2
+        with:
+          name: node-app
+          path: release.zip
+
+  deploy-dev:
+    if: github.ref == 'refs/heads/dev'
+    runs-on: ubuntu-latest
+    needs: build
+    environment:
+      name: 'Development'
+      url: ${{ steps.deploy-to-webapp.outputs.webapp-url }}
+
+    steps:
+      - name: Download artifact 
+        uses: actions/download-artifact@v2
+        with:
+          name: node-app
+
+      - name: 'Deploy to Azure'
+        id: deploy-to-webapp
+        uses: azure/webapps-deploy@v2
+        with:
+          app-name: 'zreda-assignment-develop-FE'
+          slot-name: 'Production'
+          publish-profile: ${{ secrets.AZUREAPPSERVICE_PUBLISHPROFILE_4ABC41BD9CC7496EB68EB97C6EC6A0E7 }}
+          package: release.zip
+  
+  deploy-prod:
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    needs: build
+    environment:
+      name: 'Production'
+      url: ${{ steps.deploy-to-webapp.outputs.webapp-url }}
+
+    steps:
+      - name: Download artifact from build job
+        uses: actions/download-artifact@v2
+        with:
+          name: node-app
+
+      - name: 'Deploy to Azure Web App using zip method'
+        id: deploy-to-webapp
+        uses: azure/webapps-deploy@v2
+        with:
+          app-name: 'zreda-assignment-product-FE'
+          slot-name: 'Production'
+          publish-profile: ${{ secrets.AZUREAPPSERVICE_PUBLISHPROFILE_011770F2CAEE42F685B7DC084E8A6CCE }}
+          package: release.zip
